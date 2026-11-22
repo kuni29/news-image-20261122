@@ -1,55 +1,57 @@
-"""Entry point for the make.fun news-image-20261122 submission.
+"""Deliver the news-image-20261122 front page to the grader.
 
-The front page for Sunday 22 November 2026 lives in this repository
-as entry.png (typeset from design.html with headless Chrome). The
-grader runs this program twice with no network; its only job is to
-place those exact bytes at <output>/entry.png, so both runs produce
-identical output.
+The front page for Sunday 22 November 2026 is typeset from
+design.html and rendered to entry.png (1024 by 1024, one PNG file).
+The grader runs this program twice with no network access. Its whole
+job is to copy those exact bytes into the output directory, so both
+runs produce identical output.
 """
+
+from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-JPEG_MAGIC = b"\xff\xd8\xff"
-SIZE_LIMIT = 1_048_576  # the gate's 1 MiB cap
-
-SOURCE_NAME = "entry.png"
-
-
-def _read_source() -> bytes:
-    here = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(here, SOURCE_NAME)
-    with open(path, "rb") as handle:
-        return handle.read()
+ONE_MEBIBYTE = 1024 * 1024
+PNG_SIGNATURE = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+JPEG_SIGNATURE = bytes([0xFF, 0xD8, 0xFF])
+IMAGE_FILENAME = "entry.png"
 
 
-def _check_image(blob: bytes) -> str | None:
-    if not (blob.startswith(PNG_MAGIC) or blob.startswith(JPEG_MAGIC)):
-        return "entry image is neither PNG nor JPEG"
-    if len(blob) > SIZE_LIMIT:
-        return "entry image exceeds the 1 MiB cap"
-    return None
+def load_entry_image() -> bytes:
+    """Read the committed front-page image next to this file."""
+    image_path = Path(__file__).resolve().parent / IMAGE_FILENAME
+    return image_path.read_bytes()
 
 
-def run() -> int:
-    blob = _read_source()
-    problem = _check_image(blob)
-    if problem is not None:
-        print(problem, file=sys.stderr)
+def check_image(blob: bytes) -> None:
+    """Reject anything that is not a small PNG or JPEG image."""
+    is_png = blob.startswith(PNG_SIGNATURE)
+    is_jpeg = blob.startswith(JPEG_SIGNATURE)
+    if not (is_png or is_jpeg):
+        raise ValueError("entry image is not a PNG or JPEG file")
+    if len(blob) > ONE_MEBIBYTE:
+        raise ValueError("entry image is larger than the 1 MiB limit")
+
+
+def main() -> int:
+    try:
+        blob = load_entry_image()
+        check_image(blob)
+    except (OSError, ValueError) as exc:
+        print(f"cannot deliver entry image: {exc}", file=sys.stderr)
         return 1
-    target_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
-    os.makedirs(target_dir, exist_ok=True)
-    target = os.path.join(target_dir, SOURCE_NAME)
-    with open(target, "wb") as handle:
-        handle.write(blob)
-    written = os.path.getsize(target)
-    if written != len(blob):
+    output_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    destination = output_dir / IMAGE_FILENAME
+    destination.write_bytes(blob)
+    if destination.stat().st_size != len(blob):
         print("short write of entry image", file=sys.stderr)
         return 1
-    print(f"wrote {target} ({written} bytes)")
+    print(f"wrote {destination} ({len(blob)} bytes)")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(run())
+    raise SystemExit(main())
